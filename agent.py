@@ -86,7 +86,7 @@ def run_agent(user_question: str, api_key: str = "") -> dict:
         # ── Solve for n ──────────────────────────────────────────────────────
         if any(w in q for w in ["how many years", "how long", "number of years", "number of periods", "solve for n"]):
             if rate and len(nums) >= 2:
-                pv = -nums[0]
+                pv = nums[0]   # keep positive — solve_n uses ratio fv/pv
                 fv = nums[1]
                 result = solve_n(pv, fv, rate)
                 return {"success": True, "explanation": f"Solving for n: PV={pv}, FV={fv}, i={rate}", "function_called": "solve_n", "result": result}
@@ -94,7 +94,7 @@ def run_agent(user_question: str, api_key: str = "") -> dict:
         # ── Solve for rate ───────────────────────────────────────────────────
         if any(w in q for w in ["what rate", "what interest", "solve for i", "find the rate", "annual rate"]):
             if len(nums) >= 3:
-                pv = -nums[0]
+                pv = nums[0]   # keep positive — solve_rate uses ratio fv/pv
                 fv = nums[1]
                 n = nums[2]
                 result = solve_rate(pv, fv, n)
@@ -103,7 +103,7 @@ def run_agent(user_question: str, api_key: str = "") -> dict:
                 n_match = re.search(r"(\d+)\s*(years?|periods?)", q)
                 if n_match:
                     n = float(n_match.group(1))
-                    pv = -nums[0]
+                    pv = nums[0]
                     fv = nums[1]
                     result = solve_rate(pv, fv, n)
                     return {"success": True, "explanation": f"Solving for i: PV={pv}, FV={fv}, n={n}", "function_called": "solve_rate", "result": result}
