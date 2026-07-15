@@ -2,9 +2,9 @@
 tvm_tools.py
 ------------
 Pure deterministic TVM calculations — no AI, no side effects.
-Every function takes explicit keyword arguments and returns a dict
-with the answer plus the formula used (for display in the UI).
 Sign convention: cash inflows are POSITIVE, outflows are NEGATIVE.
+Covers: PV, FV, rate, n, rate conversions, force of interest,
+        equation of value, bond pricing, loan amortization, yield of return.
 """
 
 import math
@@ -13,22 +13,16 @@ import math
 # ── 1. PRESENT VALUE ──────────────────────────────────────────────────────────
 
 def solve_pv(fv: float = 0, pmt: float = 0, i: float = 0, n: float = 0) -> dict:
-    """
-    PV of a lump sum and/or level annuity.
-    i = periodic interest rate as a decimal (e.g. 0.05 for 5%)
-    n = number of periods
-    """
     if i == 0:
         pv = fv + pmt * n
     else:
         pv_lump = fv / (1 + i) ** n
         pv_annuity = pmt * (1 - (1 + i) ** -n) / i if pmt != 0 else 0
         pv = pv_lump + pv_annuity
-
     return {
         "result": round(pv, 6),
         "label": "PV",
-        "formula": f"PV = FV/(1+i)^n + PMT×[1-(1+i)^-n]/i",
+        "formula": "PV = FV/(1+i)^n + PMT×[1-(1+i)^-n]/i",
         "inputs": {"FV": fv, "PMT": pmt, "i": i, "n": n},
     }
 
@@ -36,16 +30,12 @@ def solve_pv(fv: float = 0, pmt: float = 0, i: float = 0, n: float = 0) -> dict:
 # ── 2. FUTURE VALUE ───────────────────────────────────────────────────────────
 
 def solve_fv(pv: float = 0, pmt: float = 0, i: float = 0, n: float = 0) -> dict:
-    """
-    FV of a lump sum and/or level annuity.
-    """
     if i == 0:
         fv = pv + pmt * n
     else:
         fv_lump = pv * (1 + i) ** n
         fv_annuity = pmt * ((1 + i) ** n - 1) / i if pmt != 0 else 0
         fv = fv_lump + fv_annuity
-
     return {
         "result": round(fv, 6),
         "label": "FV",
@@ -54,13 +44,9 @@ def solve_fv(pv: float = 0, pmt: float = 0, i: float = 0, n: float = 0) -> dict:
     }
 
 
-# ── 3. INTEREST RATE (lump-sum only) ─────────────────────────────────────────
+# ── 3. INTEREST RATE ──────────────────────────────────────────────────────────
 
 def solve_rate(pv: float, fv: float, n: float) -> dict:
-    """
-    Solve for periodic rate given PV, FV, n (lump-sum, no PMT).
-    PV and FV must have opposite signs.
-    """
     if pv == 0:
         raise ValueError("PV cannot be zero when solving for rate.")
     if n <= 0:
@@ -69,7 +55,6 @@ def solve_rate(pv: float, fv: float, n: float) -> dict:
     if ratio <= 0:
         raise ValueError("FV/PV must be positive to solve for a real rate.")
     i = ratio ** (1 / n) - 1
-
     return {
         "result": round(i, 8),
         "label": "i (periodic rate)",
@@ -81,9 +66,6 @@ def solve_rate(pv: float, fv: float, n: float) -> dict:
 # ── 4. NUMBER OF PERIODS ──────────────────────────────────────────────────────
 
 def solve_n(pv: float, fv: float, i: float) -> dict:
-    """
-    Solve for n given PV, FV, and periodic rate i (lump-sum).
-    """
     if i <= 0:
         raise ValueError("i must be positive to solve for n.")
     if pv == 0 or fv == 0:
@@ -92,7 +74,6 @@ def solve_n(pv: float, fv: float, i: float) -> dict:
     if ratio <= 0:
         raise ValueError("FV/PV must be positive to solve for n.")
     n = math.log(ratio) / math.log(1 + i)
-
     return {
         "result": round(n, 6),
         "label": "n (periods)",
@@ -103,32 +84,17 @@ def solve_n(pv: float, fv: float, i: float) -> dict:
 
 # ── 5. RATE CONVERSIONS ───────────────────────────────────────────────────────
 
-def convert_rate(
-    nominal_rate: float,
-    from_compounding: int,
-    to_compounding: int,
-) -> dict:
-    """
-    Convert a nominal rate between compounding frequencies.
-    from_compounding / to_compounding: number of periods per year
-      e.g. 12 = monthly, 4 = quarterly, 2 = semi-annual, 1 = annual
-    Use 0 to represent continuous compounding.
-    nominal_rate: as a decimal (e.g. 0.12 for 12%)
-    """
-    # Step 1 — convert to effective annual rate
+def convert_rate(nominal_rate: float, from_compounding: int, to_compounding: int) -> dict:
     if from_compounding == 0:
-        ear = math.exp(nominal_rate) - 1          # continuous → EAR
+        ear = math.exp(nominal_rate) - 1
     else:
         ear = (1 + nominal_rate / from_compounding) ** from_compounding - 1
-
-    # Step 2 — convert EAR to target nominal rate
     if to_compounding == 0:
-        result = math.log(1 + ear)                # EAR → continuous
+        result = math.log(1 + ear)
         label = "Force of interest (δ)"
     else:
         result = to_compounding * ((1 + ear) ** (1 / to_compounding) - 1)
         label = f"Nominal rate compounded {to_compounding}×/year"
-
     return {
         "result": round(result, 8),
         "label": label,
@@ -145,14 +111,9 @@ def convert_rate(
 # ── 6. FORCE OF INTEREST ─────────────────────────────────────────────────────
 
 def force_of_interest(i_effective_annual: float) -> dict:
-    """
-    Compute the force of interest δ from the effective annual rate i.
-    δ = ln(1 + i)
-    """
     if i_effective_annual <= -1:
         raise ValueError("Effective annual rate must be greater than -1.")
     delta = math.log(1 + i_effective_annual)
-
     return {
         "result": round(delta, 8),
         "label": "Force of interest (δ)",
@@ -162,12 +123,7 @@ def force_of_interest(i_effective_annual: float) -> dict:
 
 
 def rate_from_force(delta: float) -> dict:
-    """
-    Recover the effective annual rate from force of interest δ.
-    i = e^δ - 1
-    """
     i = math.exp(delta) - 1
-
     return {
         "result": round(i, 8),
         "label": "Effective annual rate (i)",
@@ -178,26 +134,13 @@ def rate_from_force(delta: float) -> dict:
 
 # ── 7. EQUATION OF VALUE ─────────────────────────────────────────────────────
 
-def equation_of_value(
-    cashflows: list[dict],
-    i: float,
-    valuation_time: float = 0,
-) -> dict:
-    """
-    Move all cashflows to a common valuation date and sum them.
-    cashflows: list of {"amount": float, "time": float}
-      - positive = inflow, negative = outflow
-    i: effective periodic rate
-    valuation_time: the time point to accumulate/discount to (default 0 = PV)
-
-    Returns the net value at valuation_time. If == 0, the equation of value balances.
-    """
+def equation_of_value(cashflows: list, i: float, valuation_time: float = 0) -> dict:
     net = 0.0
     detail = []
     for cf in cashflows:
         amt = cf["amount"]
         t = cf["time"]
-        dt = valuation_time - t          # positive = accumulate, negative = discount
+        dt = valuation_time - t
         factor = (1 + i) ** dt
         value_at_t0 = amt * factor
         net += value_at_t0
@@ -207,7 +150,6 @@ def equation_of_value(
             "factor": round(factor, 6),
             "value_at_valuation": round(value_at_t0, 6),
         })
-
     return {
         "result": round(net, 6),
         "label": f"Net value at t={valuation_time}",
@@ -215,4 +157,234 @@ def equation_of_value(
         "balanced": abs(net) < 1e-4,
         "detail": detail,
         "inputs": {"i": i, "valuation_time": valuation_time},
+    }
+
+
+# ── 8. BOND PRICING ───────────────────────────────────────────────────────────
+
+def bond_price(
+    face: float,
+    coupon_rate: float,
+    coupon_freq: int,
+    years: float,
+    yield_rate: float,
+    yield_freq: int,
+    redemption: float = None,
+) -> dict:
+    """
+    P = C·v^n + Fr·a_{n|i}
+    C = redemption, F = face, r = coupon rate per period,
+    i = yield per period, n = total coupon periods
+    """
+    if redemption is None:
+        redemption = face
+
+    i = yield_rate / yield_freq
+    n = int(years * coupon_freq)
+    r = coupon_rate / coupon_freq
+    coupon = face * r
+
+    v = 1 / (1 + i)
+    v_n = v ** n
+    a_n = (1 - v_n) / i
+
+    price = redemption * v_n + coupon * a_n
+
+    return {
+        "result": round(price, 4),
+        "label": "Bond Price (P)",
+        "formula": "P = C·v^n + Fr·a_{n|i}",
+        "interpretation": (
+            f"The bond should be purchased for {round(price, 2):,.2f}. "
+            f"Since price {'<' if price < face else '>'} face value, "
+            f"the bond trades at a {'discount' if price < face else 'premium'} "
+            f"because the coupon rate is {'below' if price < face else 'above'} the yield."
+        ),
+        "inputs": {
+            "Face value (F)": face,
+            "Redemption value (C)": redemption,
+            "Coupon rate (nominal annual)": f"{coupon_rate*100}%",
+            "Coupon frequency": f"{coupon_freq}× per year",
+            "Yield rate (nominal annual)": f"{yield_rate*100}%",
+            "Yield frequency": f"{yield_freq}× per year",
+            "Term (years)": years,
+            "Periods (n)": n,
+            "Yield per period (i)": round(i, 6),
+            "Coupon per period (Fr)": round(coupon, 4),
+            "v^n": round(v_n, 6),
+            "Annuity factor a_{n|i}": round(a_n, 6),
+        },
+    }
+
+
+# ── 9. LOAN MONTHLY REPAYMENT ─────────────────────────────────────────────────
+
+def loan_repayment(
+    principal: float,
+    annual_rate: float,
+    compounding_freq: int,
+    years: float,
+    payment_freq: int = 12,
+) -> dict:
+    """
+    Monthly repayment on a loan using the annuity formula.
+    PMT = PV × i / [1 - (1+i)^-n]
+    Converts the nominal annual rate to the payment period rate first.
+    """
+    # Convert nominal rate to effective per payment period
+    ear = (1 + annual_rate / compounding_freq) ** compounding_freq - 1
+    i_per_period = (1 + ear) ** (1 / payment_freq) - 1
+    n = int(years * payment_freq)
+
+    pmt = principal * i_per_period / (1 - (1 + i_per_period) ** -n)
+
+    return {
+        "result": round(pmt, 4),
+        "label": "Monthly Repayment (PMT)",
+        "formula": "PMT = PV × i / [1 - (1+i)^-n]",
+        "interpretation": (
+            f"The borrower pays {round(pmt, 2):,.2f} every month for {n} months. "
+            f"Total repaid = {round(pmt*n, 2):,.2f}. "
+            f"Total interest = {round(pmt*n - principal, 2):,.2f}."
+        ),
+        "inputs": {
+            "Principal (PV)": principal,
+            "Nominal annual rate": f"{annual_rate*100}%",
+            "Compounding frequency": f"{compounding_freq}× per year",
+            "EAR": round(ear, 6),
+            "Rate per payment period (i)": round(i_per_period, 8),
+            "Number of payments (n)": n,
+        },
+    }
+
+
+# ── 10. OUTSTANDING LOAN BALANCE ──────────────────────────────────────────────
+
+def outstanding_balance(
+    principal: float,
+    annual_rate: float,
+    compounding_freq: int,
+    years: float,
+    after_payment: int,
+    payment_freq: int = 12,
+) -> dict:
+    """
+    Outstanding balance immediately after the k-th payment (prospective method).
+    Balance = PMT × a_{(n-k)|i}  where a is the annuity-immediate factor.
+    """
+    ear = (1 + annual_rate / compounding_freq) ** compounding_freq - 1
+    i = (1 + ear) ** (1 / payment_freq) - 1
+    n = int(years * payment_freq)
+
+    pmt = principal * i / (1 - (1 + i) ** -n)
+    remaining = n - after_payment
+    balance = pmt * (1 - (1 + i) ** -remaining) / i
+
+    return {
+        "result": round(balance, 4),
+        "label": f"Outstanding Balance after payment {after_payment}",
+        "formula": "Balance = PMT × [1-(1+i)^-(n-k)] / i",
+        "interpretation": (
+            f"After {after_payment} payments, {remaining} payments remain. "
+            f"The outstanding balance is {round(balance, 2):,.2f}."
+        ),
+        "inputs": {
+            "Principal": principal,
+            "Monthly rate (i)": round(i, 8),
+            "Total payments (n)": n,
+            "Payments made (k)": after_payment,
+            "Remaining payments": remaining,
+            "Monthly payment (PMT)": round(pmt, 4),
+        },
+    }
+
+
+# ── 11. TOTAL INTEREST PAID OVER k PAYMENTS ──────────────────────────────────
+
+def total_interest_paid(
+    principal: float,
+    annual_rate: float,
+    compounding_freq: int,
+    years: float,
+    num_payments: int,
+    payment_freq: int = 12,
+) -> dict:
+    """
+    Total interest paid during the first k payments.
+    Interest = k × PMT - (Principal - Outstanding Balance after k payments)
+    """
+    ear = (1 + annual_rate / compounding_freq) ** compounding_freq - 1
+    i = (1 + ear) ** (1 / payment_freq) - 1
+    n = int(years * payment_freq)
+
+    pmt = principal * i / (1 - (1 + i) ** -n)
+    remaining = n - num_payments
+    balance_after_k = pmt * (1 - (1 + i) ** -remaining) / i
+
+    principal_repaid = principal - balance_after_k
+    total_paid = pmt * num_payments
+    interest_paid = total_paid - principal_repaid
+
+    return {
+        "result": round(interest_paid, 4),
+        "label": f"Total Interest Paid (first {num_payments} payments)",
+        "formula": "Interest = k×PMT − (Principal − Balance_k)",
+        "interpretation": (
+            f"Over the first {num_payments} payments: "
+            f"total paid = {round(total_paid, 2):,.2f}, "
+            f"principal repaid = {round(principal_repaid, 2):,.2f}, "
+            f"interest paid = {round(interest_paid, 2):,.2f}."
+        ),
+        "inputs": {
+            "Principal": principal,
+            "Monthly rate (i)": round(i, 8),
+            "Monthly payment (PMT)": round(pmt, 4),
+            "Payments made (k)": num_payments,
+            "Balance after k payments": round(balance_after_k, 4),
+            "Principal repaid": round(principal_repaid, 4),
+        },
+    }
+
+
+# ── 12. EFFECTIVE ANNUAL YIELD (IRR-based) ────────────────────────────────────
+
+def effective_yield(
+    initial_outflow: float,
+    cashflows: list,
+    times_years: list,
+    guess: float = 0.05,
+) -> dict:
+    """
+    Solve for the effective annual rate of return (IRR) using Newton-Raphson.
+    cashflows and times_years must be the same length.
+    initial_outflow: amount invested at time 0 (positive number).
+    NPV = -outflow + Σ CF_t / (1+i)^t = 0  → solve for i.
+    """
+    i = guess
+    for _ in range(1000):
+        npv = -initial_outflow
+        dnpv = 0.0
+        for cf, t in zip(cashflows, times_years):
+            npv  += cf / (1 + i) ** t
+            dnpv -= t * cf / (1 + i) ** (t + 1)
+        if abs(npv) < 1e-8:
+            break
+        if dnpv == 0:
+            break
+        i -= npv / dnpv
+
+    return {
+        "result": round(i, 8),
+        "label": "Effective Annual Yield (IRR)",
+        "formula": "Solve: −P + Σ CF_t·v^t = 0  for v = 1/(1+i)",
+        "interpretation": (
+            f"The investor's effective annual rate of return is {round(i*100, 4)}%. "
+            "This is the rate that equates the present value of all inflows to the initial investment."
+        ),
+        "inputs": {
+            "Initial outflow": initial_outflow,
+            "Number of cashflows": len(cashflows),
+            "Cashflows": cashflows,
+            "Times (years)": times_years,
+        },
     }
